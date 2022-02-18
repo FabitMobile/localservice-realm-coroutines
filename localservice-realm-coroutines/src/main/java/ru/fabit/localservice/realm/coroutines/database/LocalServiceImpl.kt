@@ -6,7 +6,6 @@ import io.realm.RealmModel
 import io.realm.RealmQuery
 import io.realm.kotlin.toFlow
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -28,7 +27,6 @@ class LocalServiceImpl(
     private val closedCounter: MutableMap<String, Int> = mutableMapOf()
     private val instances: MutableMap<Long, Realm> = mutableMapOf()
 
-    @ExperimentalCoroutinesApi
     override suspend fun get(localServiceParams: LocalServiceParams): Flow<List<RealmModel>> {
         val dispatcher = realmDispatcherFactory.get(localServiceParams.clazz)
         val realmRef = AtomicReference<Realm>(null)
