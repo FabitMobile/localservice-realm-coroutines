@@ -76,9 +76,9 @@ class LocalServiceImpl(
     ): Flow<Number?> {
         val dispatcher = realmDispatcherFactory.get(clazz)
         var flow = emptyFlow<Number?>()
+        val realmRef = AtomicReference<Realm>(null)
         withContext(dispatcher) {
             val realm = getRealm()
-            val realmRef = AtomicReference<Realm>(null)
             realmRef.set(realm)
             var query = realm.where(clazz)
             query = predicate(query)
@@ -103,6 +103,11 @@ class LocalServiceImpl(
 
         }
         return flow
+            .onCompletion {
+                closeRealm(realmRef.get())
+                incrementIfExist(closedCounter, clazz.simpleName)
+            }
+            .flowOn(dispatcher)
     }
 
     override suspend fun getSize(
