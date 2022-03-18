@@ -4,5 +4,5 @@ import io.realm.RealmModel
 
 class RealmDispatcherFactoryImpl(private val factory: HandlerDispatcherFactory) :
     RealmDispatcherFactory {
-    override fun get(clazz: Class<RealmModel>) = factory.get()
+    override fun get(clazz: Class<out RealmModel>) = factory.get()
 }
