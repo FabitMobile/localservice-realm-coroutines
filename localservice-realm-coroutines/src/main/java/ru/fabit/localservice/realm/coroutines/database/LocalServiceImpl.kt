@@ -69,8 +69,8 @@ class LocalServiceImpl(
     }
 
     override suspend fun get(
-        clazz: Class<RealmModel>,
-        predicate: (RealmQuery<RealmModel>) -> RealmQuery<RealmModel>,
+        clazz: Class<out RealmModel>,
+        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>,
         aggregationFunction: AggregationFunction,
         nameField: String
     ): Flow<Number?> {
@@ -111,8 +111,8 @@ class LocalServiceImpl(
     }
 
     override suspend fun getSize(
-        clazz: Class<RealmModel>,
-        predicate: (RealmQuery<RealmModel>) -> RealmQuery<RealmModel>
+        clazz: Class<out RealmModel>,
+        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>
     ): Flow<Int> {
         return get(clazz, predicate, AggregationFunction.SIZE)
             .map { number ->
@@ -121,11 +121,11 @@ class LocalServiceImpl(
     }
 
 
-    override suspend fun storeObject(clazz: Class<RealmModel>, jsonObject: JSONObject) {
+    override suspend fun storeObject(clazz: Class<out RealmModel>, jsonObject: JSONObject) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
-            realm.beginTransaction()
             try {
+                realm.beginTransaction()
                 realm.createOrUpdateObjectFromJson(clazz, jsonObject)
             } catch (ex: Exception) {
                 throw ex
@@ -136,11 +136,11 @@ class LocalServiceImpl(
         }
     }
 
-    override suspend fun storeObjects(clazz: Class<RealmModel>, jsonArray: JSONArray) {
+    override suspend fun storeObjects(clazz: Class<out RealmModel>, jsonArray: JSONArray) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
-            realm.beginTransaction()
             try {
+                realm.beginTransaction()
                 realm.createOrUpdateAllFromJson(clazz, jsonArray)
             } catch (ex: Exception) {
                 throw ex
@@ -152,66 +152,81 @@ class LocalServiceImpl(
     }
 
     override suspend fun update(
-        clazz: Class<RealmModel>,
-        predicate: (RealmQuery<RealmModel>) -> RealmQuery<RealmModel>,
+        clazz: Class<out RealmModel>,
+        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>,
         action: (RealmModel) -> Unit
     ) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
-            realm.beginTransaction()
-            var query = realm.where(clazz)
-            query = predicate(query)
-            val realmObject = query.findFirst()
-            realmObject?.let {
-                action(realmObject)
-                realm.copyToRealmOrUpdate(realmObject)
+            try {
+                realm.beginTransaction()
+                var query = realm.where(clazz)
+                query = predicate(query)
+                val realmObject = query.findFirst()
+                realmObject?.let {
+                    action(realmObject)
+                    realm.copyToRealmOrUpdate(realmObject)
+                }
+            } catch (ex: Exception) {
+                throw ex
+            } finally {
+                realm.commitTransaction()
+                closeRealm(realm)
             }
-            realm.commitTransaction()
-            closeRealm(realm)
         }
     }
 
     override suspend fun delete(
-        clazz: Class<RealmModel>,
-        predicate: ((RealmQuery<RealmModel>) -> RealmQuery<RealmModel>)?
+        clazz: Class<out RealmModel>,
+        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?
     ) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
-            realm.beginTransaction()
-            var query = realm.where(clazz)
-            predicate?.let {
-                query = predicate(query)
+            try {
+                realm.beginTransaction()
+                var query = realm.where(clazz)
+                predicate?.let {
+                    query = predicate(query)
+                }
+                val results = query.findAll()
+                results.deleteAllFromRealm()
+            } catch (ex: Exception) {
+                throw ex
+            } finally {
+                realm.commitTransaction()
+                closeRealm(realm)
             }
-            val results = query.findAll()
-            results.deleteAllFromRealm()
-            realm.commitTransaction()
-            closeRealm(realm)
         }
     }
 
     override suspend fun deleteAndStoreObjects(
-        clazz: Class<RealmModel>,
-        predicate: ((RealmQuery<RealmModel>) -> RealmQuery<RealmModel>)?,
+        clazz: Class<out RealmModel>,
+        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?,
         jsonArray: JSONArray
     ) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
-            realm.beginTransaction()
-            var query = realm.where(clazz)
-            predicate?.let {
-                query = predicate(query)
+            try {
+                realm.beginTransaction()
+                var query = realm.where(clazz)
+                predicate?.let {
+                    query = predicate(query)
+                }
+                val results = query.findAll()
+                results.deleteAllFromRealm()
+                realm.createOrUpdateAllFromJson(clazz, jsonArray)
+            } catch (ex: Exception) {
+                throw ex
+            } finally {
+                realm.commitTransaction()
+                closeRealm(realm)
             }
-            val results = query.findAll()
-            results.deleteAllFromRealm()
-            realm.createOrUpdateAllFromJson(clazz, jsonArray)
-            realm.commitTransaction()
-            closeRealm(realm)
         }
     }
 
     override suspend fun getIds(
-        clazz: Class<RealmModel>,
-        predicate: ((RealmQuery<RealmModel>) -> RealmQuery<RealmModel>)?,
+        clazz: Class<out RealmModel>,
+        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?,
         action: (RealmModel) -> Int
     ): Set<Int> {
         var ids: Set<Int> = setOf()
