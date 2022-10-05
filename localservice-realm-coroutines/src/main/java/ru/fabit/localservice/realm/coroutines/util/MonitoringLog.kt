@@ -1,6 +1,6 @@
 package ru.fabit.localservice.realm.coroutines.util
 
-import io.realm.Realm
+import io.realm.kotlin.Realm
 
 data class MonitoringLog(
     val connectionsCounter: MutableMap<String, Int>,

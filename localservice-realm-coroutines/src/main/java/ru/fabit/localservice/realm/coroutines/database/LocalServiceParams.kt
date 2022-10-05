@@ -1,11 +1,12 @@
 package ru.fabit.localservice.realm.coroutines.database
 
-import io.realm.RealmModel
-import io.realm.RealmQuery
-import io.realm.Sort
+import io.realm.kotlin.query.RealmQuery
+import io.realm.kotlin.query.Sort
+import io.realm.kotlin.types.RealmObject
+import kotlin.reflect.KClass
 
 data class LocalServiceParams(
-    val clazz: Class<RealmModel>,
-    val predicate: ((RealmQuery<RealmModel>) -> RealmQuery<RealmModel>)? = null,
-    val sortPair: Map.Entry<Array<String>, Array<Sort>>? = null
+    val clazz: KClass<out RealmObject>,
+    val predicate: ((RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>)? = null,
+    val sortPair: Pair<String, Sort>? = null
 )

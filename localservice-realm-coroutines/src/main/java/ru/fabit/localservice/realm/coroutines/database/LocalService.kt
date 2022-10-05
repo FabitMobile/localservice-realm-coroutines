@@ -1,55 +1,56 @@
 package ru.fabit.localservice.realm.coroutines.database
 
-import io.realm.RealmModel
-import io.realm.RealmQuery
+import io.realm.kotlin.query.RealmQuery
+import io.realm.kotlin.types.RealmObject
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 import org.json.JSONObject
 import ru.fabit.localservice.realm.coroutines.util.AggregationFunction
 import ru.fabit.localservice.realm.coroutines.util.MonitoringLog
+import kotlin.reflect.KClass
 
 interface LocalService {
     suspend fun get(
-        clazz: Class<out RealmModel>,
-        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>,
+        clazz: KClass<out RealmObject>,
+        predicate: (RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>,
         aggregationFunction: AggregationFunction,
         nameField: String = ""
     ): Flow<Number?>
 
     suspend fun get(
         localServiceParams: LocalServiceParams
-    ): Flow<List<RealmModel>>
+    ): Flow<List<RealmObject>>
 
     suspend fun getSize(
-        clazz: Class<out RealmModel>,
-        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>
+        clazz: KClass<out RealmObject>,
+        predicate: (RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>
     ): Flow<Int>
 
-    suspend fun storeObject(clazz: Class<out RealmModel>, jsonObject: JSONObject)
+    suspend fun <T: RealmObject> storeObject(value: T)
 
-    suspend fun storeObjects(clazz: Class<out RealmModel>, jsonArray: JSONArray)
+    suspend fun <T: RealmObject> storeObjects(values: List<T>)
 
     suspend fun update(
-        clazz: Class<out RealmModel>,
-        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>,
-        action: (RealmModel) -> Unit
+        clazz: KClass<out RealmObject>,
+        predicate: (RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>,
+        action: (RealmObject) -> Unit
     )
 
     suspend fun delete(
-        clazz: Class<out RealmModel>,
-        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?
+        clazz: KClass<out RealmObject>,
+        predicate: ((RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>)?
     )
 
     suspend fun deleteAndStoreObjects(
-        clazz: Class<out RealmModel>,
-        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?,
-        jsonArray: JSONArray
+        clazz: KClass<out RealmObject>,
+        predicate: ((RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>)?,
+        values: List<RealmObject>
     )
 
     suspend fun getIds(
-        clazz: Class<out RealmModel>,
-        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?,
-        action: (RealmModel) -> Int
+        clazz: KClass<out RealmObject>,
+        predicate: ((RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>)?,
+        action: (RealmObject) -> Int
     ): Set<Int>
 
     fun getMonitoringLog(): MonitoringLog?

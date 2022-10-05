@@ -1,8 +1,9 @@
 package ru.fabit.localservice.realm.coroutines.threading
 
-import io.realm.RealmModel
+import io.realm.kotlin.types.RealmObject
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlin.reflect.KClass
 
 interface RealmDispatcherFactory {
-    fun get(clazz: Class<out RealmModel>): CoroutineDispatcher
+    fun get(clazz: KClass<out RealmObject>): CoroutineDispatcher
 }
