@@ -1,24 +1,22 @@
 package ru.fabit.localservice.realm.coroutines.database
 
-import io.realm.Realm
-import io.realm.RealmConfiguration
-import io.realm.RealmModel
-import io.realm.RealmQuery
-import io.realm.kotlin.toFlow
+import io.realm.kotlin.Realm
+import io.realm.kotlin.UpdatePolicy
+import io.realm.kotlin.query.RealmQuery
+import io.realm.kotlin.types.RealmObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import ru.fabit.localservice.realm.coroutines.threading.RealmDispatcherFactory
 import ru.fabit.localservice.realm.coroutines.util.AggregationFunction
 import ru.fabit.localservice.realm.coroutines.util.MonitoringLog
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Provider
+import kotlin.reflect.KClass
 
 class LocalServiceImpl(
-    private val realmConfiguration: RealmConfiguration,
     private val realmProvider: Provider<Realm>,
+    private val realm: Realm,
     private val realmDispatcherFactory: RealmDispatcherFactory
 ) : LocalService {
 
@@ -27,41 +25,38 @@ class LocalServiceImpl(
     private val closedCounter: MutableMap<String, Int> = mutableMapOf()
     private val instances: MutableMap<Long, Realm> = mutableMapOf()
 
-    override suspend fun get(localServiceParams: LocalServiceParams): Flow<List<RealmModel>> {
+    override suspend fun get(localServiceParams: LocalServiceParams): Flow<List<RealmObject>> {
         val dispatcher = realmDispatcherFactory.get(localServiceParams.clazz)
         val realmRef = AtomicReference<Realm>(null)
 
         val sortPair = localServiceParams.sortPair
         val predicate = localServiceParams.predicate
-        incrementIfExist(openedCounter, localServiceParams.clazz.simpleName)
+        incrementIfExist(openedCounter, localServiceParams.clazz.simpleName ?: "")
 
-        var flow = emptyFlow<List<RealmModel>>()
+        var flow = emptyFlow<List<RealmObject>>()
 
         withContext(dispatcher) {
             val realm = getRealm()
             realmRef.set(realm)
-            var query = realm.where(localServiceParams.clazz)
+            var query = realm.query(localServiceParams.clazz)
             predicate?.let { predicate ->
                 query = predicate(query)
             }
             flow =
                 when (sortPair == null) {
-                    true -> query.findAll()
-                    false -> query.findAll().sort(sortPair.key, sortPair.value)
+                    true -> query
+                    false -> query.sort(sortPair.first, sortPair.second)
                 }
-                    .toFlow()
-                    .filter {
-                        it.isLoaded
-                    }
+                    .asFlow()
                     .map {
-                        realm.copyFromRealm(it)
+                        it.list
                     }
         }
 
         return flow
             .onCompletion {
                 closeRealm(realmRef.get())
-                incrementIfExist(closedCounter, localServiceParams.clazz.simpleName)
+                incrementIfExist(closedCounter, localServiceParams.clazz.simpleName ?: "")
             }
             .flowOn(dispatcher)
 
@@ -69,50 +64,37 @@ class LocalServiceImpl(
     }
 
     override suspend fun get(
-        clazz: Class<out RealmModel>,
-        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>,
+        clazz: KClass<out RealmObject>,
+        predicate: (RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>,
         aggregationFunction: AggregationFunction,
         nameField: String
     ): Flow<Number?> {
         val dispatcher = realmDispatcherFactory.get(clazz)
-        var flow = emptyFlow<Number?>()
+        var flow: Flow<Number?>
         val realmRef = AtomicReference<Realm>(null)
         withContext(dispatcher) {
             val realm = getRealm()
             realmRef.set(realm)
-            var query = realm.where(clazz)
+            var query = realm.query(clazz)
             query = predicate(query)
-            flow = query.findAll()
-                .toFlow()
-                .filter { model ->
-                    model.isLoaded
-                }
-                .map { results ->
-                    if (results.size > 0) {
-                        when (aggregationFunction) {
-                            AggregationFunction.MAX -> results.max(nameField)
-                            AggregationFunction.MIN -> results.min(nameField)
-                            AggregationFunction.SUM -> results.sum(nameField)
-                            AggregationFunction.SIZE -> results.size
-                            AggregationFunction.AVERAGE -> results.average(nameField)
-                        }
-                    } else {
-                        null
-                    }
-                }
-
+            flow = when (aggregationFunction) {
+                AggregationFunction.MAX -> query.max(nameField, Number::class).asFlow()
+                AggregationFunction.MIN -> query.min(nameField, Number::class).asFlow()
+                AggregationFunction.SUM -> query.sum(nameField, Number::class).asFlow()
+                AggregationFunction.SIZE -> query.count().asFlow()
+            }
         }
         return flow
             .onCompletion {
                 closeRealm(realmRef.get())
-                incrementIfExist(closedCounter, clazz.simpleName)
+                incrementIfExist(closedCounter, clazz.simpleName ?: "")
             }
             .flowOn(dispatcher)
     }
 
     override suspend fun getSize(
-        clazz: Class<out RealmModel>,
-        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>
+        clazz: KClass<out RealmObject>,
+        predicate: (RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>
     ): Flow<Int> {
         return get(clazz, predicate, AggregationFunction.SIZE)
             .map { number ->
@@ -120,126 +102,133 @@ class LocalServiceImpl(
             }
     }
 
-
-    override suspend fun storeObject(clazz: Class<out RealmModel>, jsonObject: JSONObject) {
+    override suspend fun <T : RealmObject> storeObject(value: T) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
             try {
-                realm.beginTransaction()
-                realm.createOrUpdateObjectFromJson(clazz, jsonObject)
+                realm.write {
+                    copyToRealm(value, UpdatePolicy.ALL)
+                }
             } catch (ex: Exception) {
                 throw ex
             } finally {
-                realm.commitTransaction()
                 closeRealm(realm)
             }
         }
     }
 
-    override suspend fun storeObjects(clazz: Class<out RealmModel>, jsonArray: JSONArray) {
+    override suspend fun <T : RealmObject> storeObjects(values: List<T>) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
             try {
-                realm.beginTransaction()
-                realm.createOrUpdateAllFromJson(clazz, jsonArray)
+                realm.write {
+                    values.forEach {
+                        copyToRealm(it, UpdatePolicy.ALL)
+                    }
+                }
             } catch (ex: Exception) {
                 throw ex
             } finally {
-                realm.commitTransaction()
                 closeRealm(realm)
             }
         }
     }
 
     override suspend fun update(
-        clazz: Class<out RealmModel>,
-        predicate: (RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>,
-        action: (RealmModel) -> Unit
+        clazz: KClass<out RealmObject>,
+        predicate: (RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>,
+        action: (RealmObject) -> Unit
     ) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
             try {
-                realm.beginTransaction()
-                var query = realm.where(clazz)
+                var query = realm.query(clazz)
                 query = predicate(query)
-                val realmObject = query.findFirst()
-                realmObject?.let {
-                    action(realmObject)
-                    realm.copyToRealmOrUpdate(realmObject)
+                val realmResults = query.find()
+                for (realmObject in realmResults) {
+                    realm.write {
+                        findLatest(realmObject)?.let { action(it) }
+                    }
                 }
             } catch (ex: Exception) {
                 throw ex
             } finally {
-                realm.commitTransaction()
                 closeRealm(realm)
             }
         }
     }
 
     override suspend fun delete(
-        clazz: Class<out RealmModel>,
-        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?
+        clazz: KClass<out RealmObject>,
+        predicate: ((RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>)?
     ) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
             try {
-                realm.beginTransaction()
-                var query = realm.where(clazz)
-                predicate?.let {
-                    query = predicate(query)
+                realm.write {
+                    var query = query(clazz)
+                    predicate?.let {
+                        query = predicate(query)
+                    }
+                    val realmResults = query.find()
+                    if (realmResults.isNotEmpty()) {
+                        delete(realmResults)
+                    }
                 }
-                val results = query.findAll()
-                results.deleteAllFromRealm()
             } catch (ex: Exception) {
                 throw ex
             } finally {
-                realm.commitTransaction()
                 closeRealm(realm)
             }
         }
     }
 
     override suspend fun deleteAndStoreObjects(
-        clazz: Class<out RealmModel>,
-        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?,
-        jsonArray: JSONArray
+        clazz: KClass<out RealmObject>,
+        predicate: ((RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>)?,
+        values: List<RealmObject>
     ) {
         withContext(Dispatchers.IO) {
             val realm = getRealm()
             try {
-                realm.beginTransaction()
-                var query = realm.where(clazz)
-                predicate?.let {
-                    query = predicate(query)
+                realm.write {
+                    var query = query(clazz)
+                    predicate?.let {
+                        query = predicate(query)
+                    }
+                    val realmResults = query.find()
+                    if (realmResults.isNotEmpty()) {
+                        delete(realmResults)
+                    }
+                    values.forEach {
+                        copyToRealm(it)
+                    }
                 }
-                val results = query.findAll()
-                results.deleteAllFromRealm()
-                realm.createOrUpdateAllFromJson(clazz, jsonArray)
             } catch (ex: Exception) {
                 throw ex
             } finally {
-                realm.commitTransaction()
                 closeRealm(realm)
             }
         }
     }
 
     override suspend fun getIds(
-        clazz: Class<out RealmModel>,
-        predicate: ((RealmQuery<out RealmModel>) -> RealmQuery<out RealmModel>)?,
-        action: (RealmModel) -> Int
+        clazz: KClass<out RealmObject>,
+        predicate: ((RealmQuery<out RealmObject>) -> RealmQuery<out RealmObject>)?,
+        action: (RealmObject) -> Int
     ): Set<Int> {
         var ids: Set<Int> = setOf()
         withContext(Dispatchers.IO) {
             val realm = getRealm()
-            var query = realm.where(clazz)
+            var query = realm.query(clazz)
             predicate?.let {
                 query = predicate(query)
             }
-            val results = query.findAll()
-            ids = realm.copyFromRealm(results)
-                .map { realmModel -> action(realmModel) }
-                .toSet()
+            ids = query.asFlow()
+                .map { it.list }
+                .map { listRealmObject -> listRealmObject.map { realmObject -> action(realmObject) } }
+                .map { it.toSet() }
+                .first()
             closeRealm(realm)
         }
         return ids
@@ -256,18 +245,18 @@ class LocalServiceImpl(
 
 
     override fun getGlobalInstanceCount(): Int {
-        return Realm.getGlobalInstanceCount(realmConfiguration)
+        return 0 //Realm.getGlobalInstanceCount(realmConfiguration)
     }
 
     override fun getLocalInstanceCount(): Int {
-        return Realm.getLocalInstanceCount(realmConfiguration)
+        return 0 //Realm.getLocalInstanceCount(realmConfiguration)
     }
 
     private fun getRealm(): Realm {
         val threadName = Thread.currentThread().name
         val threadId = Thread.currentThread().id
         incrementIfExist(connectionsCounter, threadName)
-        val realm = realmProvider.get()
+        val realm = realm
         if (!instances.containsKey(threadId)) {
             instances[threadId] = realm
         }
@@ -297,7 +286,7 @@ class LocalServiceImpl(
             val threadName = Thread.currentThread().name
             decrementIfExist(connectionsCounter, threadName)
             instances.remove(Thread.currentThread().id)
-            realm.close()
+//            realm.close()
         }
     }
 
