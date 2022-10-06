@@ -16,7 +16,6 @@ import kotlin.reflect.KClass
 
 class LocalServiceImpl(
     private val realmProvider: Provider<Realm>,
-    private val realm: Realm,
     private val realmDispatcherFactory: RealmDispatcherFactory
 ) : LocalService {
 
@@ -144,9 +143,9 @@ class LocalServiceImpl(
             try {
                 var query = realm.query(clazz)
                 query = predicate(query)
-                val realmResults = query.find()
-                for (realmObject in realmResults) {
-                    realm.write {
+                realm.write {
+                    val realmResults = query.find()
+                    for (realmObject in realmResults) {
                         findLatest(realmObject)?.let { action(it) }
                     }
                 }
@@ -256,7 +255,7 @@ class LocalServiceImpl(
         val threadName = Thread.currentThread().name
         val threadId = Thread.currentThread().id
         incrementIfExist(connectionsCounter, threadName)
-        val realm = realm
+        val realm = realmProvider.get()
         if (!instances.containsKey(threadId)) {
             instances[threadId] = realm
         }
@@ -286,7 +285,7 @@ class LocalServiceImpl(
             val threadName = Thread.currentThread().name
             decrementIfExist(connectionsCounter, threadName)
             instances.remove(Thread.currentThread().id)
-//            realm.close()
+            realm.close()
         }
     }
 
