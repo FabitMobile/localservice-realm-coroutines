@@ -11,11 +11,10 @@ import ru.fabit.localservice.realm.coroutines.threading.RealmDispatcherFactory
 import ru.fabit.localservice.realm.coroutines.util.AggregationFunction
 import ru.fabit.localservice.realm.coroutines.util.MonitoringLog
 import java.util.concurrent.atomic.AtomicReference
-import javax.inject.Provider
 import kotlin.reflect.KClass
 
 class LocalServiceImpl(
-    private val realmProvider: Provider<Realm>,
+    private val realm: Realm,
     private val realmDispatcherFactory: RealmDispatcherFactory
 ) : LocalService {
 
@@ -58,7 +57,6 @@ class LocalServiceImpl(
                 incrementIfExist(closedCounter, localServiceParams.clazz.simpleName ?: "")
             }
             .flowOn(dispatcher)
-
 
     }
 
@@ -242,7 +240,6 @@ class LocalServiceImpl(
             this.toString()
         )
 
-
     override fun getGlobalInstanceCount(): Int {
         return 0 //Realm.getGlobalInstanceCount(realmConfiguration)
     }
@@ -255,7 +252,7 @@ class LocalServiceImpl(
         val threadName = Thread.currentThread().name
         val threadId = Thread.currentThread().id
         incrementIfExist(connectionsCounter, threadName)
-        val realm = realmProvider.get()
+        val realm = realm
         if (!instances.containsKey(threadId)) {
             instances[threadId] = realm
         }
@@ -285,7 +282,6 @@ class LocalServiceImpl(
             val threadName = Thread.currentThread().name
             decrementIfExist(connectionsCounter, threadName)
             instances.remove(Thread.currentThread().id)
-            realm.close()
         }
     }
 
