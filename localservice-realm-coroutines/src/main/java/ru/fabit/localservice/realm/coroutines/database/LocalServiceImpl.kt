@@ -15,7 +15,8 @@ import kotlin.reflect.KClass
 
 class LocalServiceImpl(
     private val realm: Realm,
-    private val realmDispatcherFactory: RealmDispatcherFactory
+    private val realmDispatcherFactory: RealmDispatcherFactory,
+    private val isEnabledMonitoring: Boolean
 ) : LocalService {
 
     private val connectionsCounter: MutableMap<String, Int> = mutableMapOf()
@@ -29,7 +30,10 @@ class LocalServiceImpl(
 
         val sortPair = localServiceParams.sortPair
         val predicate = localServiceParams.predicate
-        incrementIfExist(openedCounter, localServiceParams.clazz.simpleName ?: "")
+
+        if (isEnabledMonitoring) {
+            incrementIfExist(openedCounter, localServiceParams.clazz.simpleName ?: "")
+        }
 
         var flow = emptyFlow<List<RealmObject>>()
 
@@ -54,7 +58,9 @@ class LocalServiceImpl(
         return flow
             .onCompletion {
                 closeRealm(realmRef.get())
-                incrementIfExist(closedCounter, localServiceParams.clazz.simpleName ?: "")
+                if (isEnabledMonitoring) {
+                    incrementIfExist(closedCounter, localServiceParams.clazz.simpleName ?: "")
+                }
             }
             .flowOn(dispatcher)
 
@@ -84,7 +90,9 @@ class LocalServiceImpl(
         return flow
             .onCompletion {
                 closeRealm(realmRef.get())
-                incrementIfExist(closedCounter, clazz.simpleName ?: "")
+                if (isEnabledMonitoring) {
+                    incrementIfExist(closedCounter, clazz.simpleName ?: "")
+                }
             }
             .flowOn(dispatcher)
     }
@@ -231,57 +239,58 @@ class LocalServiceImpl(
         return ids
     }
 
-    override fun getMonitoringLog() =
-        MonitoringLog(
+    override fun getMonitoringLog() = when (isEnabledMonitoring) {
+        true -> MonitoringLog(
             connectionsCounter,
             instances,
             openedCounter,
             closedCounter,
             this.toString()
         )
-
-    override fun getGlobalInstanceCount(): Int {
-        return 0 //Realm.getGlobalInstanceCount(realmConfiguration)
-    }
-
-    override fun getLocalInstanceCount(): Int {
-        return 0 //Realm.getLocalInstanceCount(realmConfiguration)
+        false -> MonitoringLog()
     }
 
     private fun getRealm(): Realm {
         val threadName = Thread.currentThread().name
         val threadId = Thread.currentThread().id
-        incrementIfExist(connectionsCounter, threadName)
         val realm = realm
-        if (!instances.containsKey(threadId)) {
-            instances[threadId] = realm
+        if (isEnabledMonitoring) {
+            incrementIfExist(connectionsCounter, threadName)
+            if (!instances.containsKey(threadId)) {
+                instances[threadId] = realm
+            }
         }
         return realm
     }
 
+    @Synchronized
     private fun incrementIfExist(map: MutableMap<String, Int>, key: String) {
         if (!map.containsKey(key)) {
             map[key] = 0
         }
-        var value = map[key]!!
+        var value = map[key] ?: 0
         value += 1
         map[key] = value
     }
 
+    @Synchronized
     private fun decrementIfExist(map: MutableMap<String, Int>, key: String) {
         if (!map.containsKey(key)) {
             map[key] = 0
         }
-        var value = map[key]!!
+        var value = map[key] ?: 0
         value -= 1
         map[key] = value
+
     }
 
     private fun closeRealm(realm: Realm?) {
         if (realm != null) {
             val threadName = Thread.currentThread().name
-            decrementIfExist(connectionsCounter, threadName)
-            instances.remove(Thread.currentThread().id)
+            if (isEnabledMonitoring) {
+                decrementIfExist(connectionsCounter, threadName)
+                instances.remove(Thread.currentThread().id)
+            }
         }
     }
 
