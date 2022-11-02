@@ -54,8 +54,4 @@ interface LocalService {
     ): Set<Int>
 
     fun getMonitoringLog(): MonitoringLog?
-
-    fun getGlobalInstanceCount(): Int
-
-    fun getLocalInstanceCount(): Int
 }
